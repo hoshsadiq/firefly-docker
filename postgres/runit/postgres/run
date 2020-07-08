@@ -1,0 +1,5 @@
+#!/usr/bin/env sh
+
+. /etc/envvars
+
+exec bash /usr/local/bin/docker-entrypoint.sh postgres -c config_file=/etc/postgresql/postgresql.conf

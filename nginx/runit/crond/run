@@ -1,0 +1,5 @@
+#!/usr/bin/env sh
+
+. /etc/envvars
+
+exec /usr/sbin/crond -f -L /dev/stdout

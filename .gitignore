@@ -1,0 +1,7 @@
+/.idea
+*.pem
+/secrets
+
+/*.env
+/notes.md
+/gpg.sh

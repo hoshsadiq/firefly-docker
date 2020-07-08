@@ -1,0 +1,32 @@
+#!/usr/bin/env sh
+
+set -eu
+
+mkdir -p /var/log/letsencrypt
+ln -sf /dev/stdout /var/log/letsencrypt/letsencrypt.log
+
+pip install --quiet certbot-dns-cloudflare
+
+# todo deploy-cert when starting second time without it renewing
+
+echo "$CERTBOT_DOMAINS" |
+  while IFS= read -r domainUid; do
+    domain="${domainUid%;*}"
+    uid="${domainUid#*;}"
+
+    certbot certonly -n \
+      --agree-tos \
+      --dns-cloudflare \
+      --dns-cloudflare-credentials "$CLOUDFLARE_CREDENTIALS_FILE" \
+      --deploy-hook "deploy-cert $uid" \
+      -m "$CERTBOT_EMAIL" \
+      -d "$domain" \
+      "$CERTBOT_STAGING"
+  done
+
+# todo cron schedule should be configurable
+if ! grep -qF 'certbot' /etc/crontabs/root; then
+  echo "0 */12 * * * /usr/local/bin/certbot renew $CERTBOT_STAGING" >> /etc/crontabs/root
+fi
+
+exec crond -f -L /dev/stdout

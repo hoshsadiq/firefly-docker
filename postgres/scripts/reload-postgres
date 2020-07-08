@@ -1,0 +1,11 @@
+#!/usr/bin/env sh
+
+set -eu
+
+reload_file=/secrets/certs/reload
+
+>&2 echo "INFO: Checking if postgres needs reloading"
+if [ -f "$reload_file" ]; then
+  su - -s /bin/sh postgres -c "/usr/local/bin/pg_ctl -D $PGDATA reload"
+  rm -f "$reload_file"
+fi

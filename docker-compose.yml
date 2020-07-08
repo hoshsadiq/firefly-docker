@@ -1,0 +1,141 @@
+version: '3.3'
+
+services:
+  certbot:
+    image: certbot/certbot
+    entrypoint: get-certs
+    tty: true
+    init: true
+    environment:
+      CLOUDFLARE_CREDENTIALS_FILE: /secrets/config/cloudflare-credentials.ini
+      CERTBOT_DOMAINS: |-
+        firefly.example;101:101
+        firefly-db.example.com;70:70
+    env_file:
+      - certbot.env
+    volumes:
+      - ./certbot/scripts:/usr/local/sbin:ro
+
+      - ./secrets/cloudflare-credentials.ini:/secrets/config/cloudflare-credentials.ini:ro
+
+      - letsencrypt:/etc/letsencrypt
+      - certificates_nginx:/secrets/certs/firefly.example.com
+      - certificates_db:/secrets/certs/firefly-db.example.com
+
+  nginx:
+    build:
+      context: ./nginx
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/conf.d:/etc/nginx/conf.d:ro
+      - ./nginx/scripts/wait-for-letsencrypt.sh:/docker-entrypoint.d/30-run-nginx-wait-for-letsencrypt.sh:ro
+      - ./common/scripts/wait-for-firefly-download.sh:/docker-entrypoint.d/30-wait-for-firefly-download.sh:ro
+
+      - certificates_nginx:/secrets/certs
+      - firefly_src:/var/www/firefly-iii
+    ports:
+      - 8080:80
+      - 8443:443
+    depends_on:
+      - certbot
+      - firefly
+
+  firefly-db: # todo rename to db
+    build:
+      context: postgres
+    env_file: db.env
+    volumes:
+      - ./postgres/scripts/wait-for-letsencrypt.sh:/wait-for-letsencrypt.sh:ro
+      - ./postgres/config:/etc/postgresql:ro
+
+      - certificates_db:/secrets/certs
+      - firefly_db:/var/lib/postgresql/data
+    depends_on:
+      - certbot
+
+  # todo https://www.tecmint.com/connect-nginx-to-php-fpm/
+  app:
+    build:
+      context: firefly
+    entrypoint: /wait-for-firefly-download.sh
+    command: [ '/entrypoint.sh' ]
+    volumes:
+      - ./common/scripts/wait-for-firefly-download.sh:/wait-for-firefly-download.sh:ro
+      - firefly_src:/var/www/firefly-iii
+      - firefly_export:/var/www/firefly-iii/storage/export
+      - firefly_upload:/var/www/firefly-iii/storage/upload
+    env_file: firefly.env
+    depends_on:
+      - postgres
+
+  downloader:
+    image: alpine:3.12
+    entrypoint: /download-firefly.sh
+    working_dir: /tmp
+    restart: "no"
+    volumes:
+      - ./common/scripts/download-firefly.sh:/download-firefly.sh:ro
+      - firefly_src:/var/www/firefly-iii
+    environment:
+      - VERSION=5.2.8
+      - FIREFLY_PATH=/var/www/firefly-iii
+      - USER_CHOWN=101:101
+
+  memcached:
+    image: memcached:alpine
+
+#   todo cron!
+#  cron:
+#    image: alpine
+#    command: sh -c 'echo "0 3 * * * wget https://<Firefly III URL>/cron/run/<TOKEN>" | crontab - && crond -f -L /dev/stdout'
+
+  backup:
+    build:
+      context: backup
+    environment:
+      BACKUP_BASE_DIR: /backup
+      PGPASSFILE: /backup/.pgpass
+      BACKUP_SCHEDULE: "0 2 * * *"
+    env_file:
+      - backup.env
+      - db.env
+    volumes:
+    - firefly_upload:/backup/mnt/upload
+    - firefly_export:/backup/mnt/export
+    - letsencrypt:/backup/mnt/certificates
+    - ./secrets/recipient.key:/backup/keys/recipient.key
+    - ./secrets/sign.key:/backup/keys/sign.key
+    - backup_secrets:/backup/
+
+    - ./backup/backup.sh:/backup.sh
+
+#  testing:
+#    image: alpine:latest
+#    entrypoint: tail
+#    command: [ '-f', '/dev/null' ]
+#    volumes:
+#      - firefly_src:/var/www/firefly-iii
+#    depends_on:
+#      - firefly
+#      - memcached
+#      - nginx
+#      - firefly-db
+
+volumes:
+  firefly_export:
+  firefly_upload:
+  firefly_db:
+  firefly_src:
+  letsencrypt:
+  certificates_db:
+    driver_opts:
+      type: tmpfs
+      device: tmpfs
+  certificates_nginx:
+    driver_opts:
+      type: tmpfs
+      device: tmpfs
+  backup_secrets:
+    driver_opts:
+      type: tmpfs
+      device: tmpfs

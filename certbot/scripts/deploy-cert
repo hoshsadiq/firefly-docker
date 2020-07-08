@@ -1,0 +1,27 @@
+#!/usr/bin/env sh
+
+set -eu
+
+uid="$1"
+
+target_dir="/secrets/certs/$RENEWED_DOMAINS"
+
+mkdir -p "$target_dir"
+cp -L "$RENEWED_LINEAGE/"* "$target_dir"
+chown "$uid" "$target_dir/"*
+chmod 600 "$target_dir/"*
+
+create_finalise_file() {
+  file_type="$1"
+
+  touch "/tmp/$RENEWED_DOMAINS-$file_type"
+  chown "$uid" "/tmp/$RENEWED_DOMAINS-$file_type"
+  chmod 600 "/tmp/$RENEWED_DOMAINS-$file_type"
+  mv "/tmp/$RENEWED_DOMAINS-$file_type" "$target_dir/$file_type"
+}
+
+if [ ! -f "$target_dir/ready" ]; then
+  create_finalise_file ready
+else
+  create_finalise_file reload
+fi
